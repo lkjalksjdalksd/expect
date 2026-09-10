@@ -6,7 +6,7 @@ import { z } from "zod/v4";
 import { Effect, Option, type ManagedRuntime } from "effect";
 import { FileSystem } from "effect/FileSystem";
 import { evaluateRuntime } from "../utils/evaluate-runtime";
-import { runAccessibilityAudit } from "../accessibility";
+import { presentAccessibilityAudit, runAccessibilityAudit } from "../accessibility";
 import { formatPerformanceTrace } from "../performance-trace";
 import { McpSession } from "./mcp-session";
 import { OverlayController } from "./overlay-controller";
@@ -653,10 +653,11 @@ export const createBrowserMcpServer = <E>(
           const page = yield* session.requirePage();
           yield* overlay.updateLabel(page, "Running accessibility audit");
           const result = yield* runAccessibilityAudit(page, { selector, tags });
-          if (result.violations.length === 0) {
-            return textResult("No accessibility violations found.");
+          const presented = presentAccessibilityAudit(result);
+          if (presented.kind === "empty-pass") {
+            return textResult(presented.text);
           }
-          return jsonResult(result);
+          return jsonResult(presented.data);
         }).pipe(Effect.withSpan(`mcp.tool.accessibility_audit`)),
       ),
   );

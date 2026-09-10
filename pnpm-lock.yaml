@@ -66,6 +66,9 @@ importers:
       accessibility-checker-engine:
         specifier: ^4.0.16
         version: 4.0.16
+      axe-core:
+        specifier: ^4.13.0
+        version: 4.13.0
       cli-truncate:
         specifier: ^5.2.0
         version: 5.2.0
@@ -402,9 +405,9 @@ importers:
 
   packages/browser:
     dependencies:
-      '@axe-core/playwright':
-        specifier: ^4.11.1
-        version: 4.11.1(playwright-core@1.58.2)
+      axe-core:
+        specifier: ^4.13.0
+        version: 4.13.0
       '@effect/platform-node':
         specifier: 4.0.0-beta.35
         version: 4.0.0-beta.35(effect@4.0.0-beta.35)(ioredis@5.10.0)
@@ -678,11 +681,6 @@ packages:
     engines: {node: '>=18.0.0'}
     peerDependencies:
       zod: ^4.0.0
-
-  '@axe-core/playwright@4.11.1':
-    resolution: {integrity: sha512-mKEfoUIB1MkVTht0BGZFXtSAEKXMJoDkyV5YZ9jbBmZCcWDz71tegNsdTkIN8zc/yMi5Gm2kx7Z5YQ9PfWNAWw==}
-    peerDependencies:
-      playwright-core: '>= 1.0.0'
 
   '@babel/code-frame@7.29.0':
     resolution: {integrity: sha512-9NhCeYjq9+3uxgdtp20LSiJXJvN0FeCtNGpJxuMFZ1Kv3cWUNb6DOhJwUvcVCzKGR66cw4njwM6hrJLqgOwbcw==}
@@ -3759,6 +3757,10 @@ packages:
 
   axe-core@4.11.1:
     resolution: {integrity: sha512-BASOg+YwO2C+346x3LZOeoovTIoTrRqEsqMa6fmfAV0P+U9mFr9NsyOEpiYvFjbc64NMrSswhV50WdXzdb/Z5A==}
+    engines: {node: '>=4'}
+
+  axe-core@4.13.0:
+    resolution: {integrity: sha512-UzGt8zg7Ny8djbYMhxl2zuEevVa7r2gJjYY5Lwr1xM7+XU2nd6CkIWFTVcCIbAP63vSz71NaVyyuSk9lHKcy0A==}
     engines: {node: '>=4'}
 
   axobject-query@4.1.0:
@@ -7625,11 +7627,6 @@ snapshots:
       '@img/sharp-win32-arm64': 0.34.5
       '@img/sharp-win32-x64': 0.34.5
 
-  '@axe-core/playwright@4.11.1(playwright-core@1.58.2)':
-    dependencies:
-      axe-core: 4.11.1
-      playwright-core: 1.58.2
-
   '@babel/code-frame@7.29.0':
     dependencies:
       '@babel/helper-validator-identifier': 7.28.5
@@ -10534,6 +10531,8 @@ snapshots:
       possible-typed-array-names: 1.1.0
 
   axe-core@4.11.1: {}
+
+  axe-core@4.13.0: {}
 
   axobject-query@4.1.0: {}
 
