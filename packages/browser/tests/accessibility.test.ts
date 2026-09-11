@@ -333,27 +333,49 @@ describe("runAccessibilityAudit restrictive nonce CSP", () => {
     expectEmptyPass(await auditCspPage("webkit", "/clean"));
   });
 
+  const registerAxeBlockingServiceWorker = async (page: Page, fixturePath: string) => {
+    await page.goto(`${cspOrigin}${fixturePath}`, { waitUntil: "domcontentloaded" });
+    await page.evaluate(async () => {
+      await navigator.serviceWorker.register("/sw.js");
+      await navigator.serviceWorker.ready;
+      if (!navigator.serviceWorker.controller) {
+        await new Promise<void>((resolve) => {
+          navigator.serviceWorker.addEventListener("controllerchange", () => resolve(), {
+            once: true,
+          });
+        });
+      }
+    });
+    await page.reload({ waitUntil: "domcontentloaded" });
+  };
+
   it("fails closed on chromium when a service worker intercepts the axe script request", async () => {
     const session = await launchEngine("chromium");
     try {
-      await session.page.goto(`${cspOrigin}/self-only/violations`, {
-        waitUntil: "domcontentloaded",
-      });
-      await session.page.evaluate(async () => {
-        await navigator.serviceWorker.register("/sw.js");
-        await navigator.serviceWorker.ready;
-        if (!navigator.serviceWorker.controller) {
-          await new Promise<void>((resolve) => {
-            navigator.serviceWorker.addEventListener("controllerchange", () => resolve(), {
-              once: true,
-            });
-          });
-        }
-      });
-      await session.page.reload({ waitUntil: "domcontentloaded" });
+      await registerAxeBlockingServiceWorker(session.page, "/self-only/violations");
       const result = await runAudit(session.page);
       expect(result.engines.axe.status).toBe("failed");
       expect(presentAccessibilityAudit(result).kind).toBe("report");
+    } finally {
+      await session.playwrightBrowser.close();
+    }
+  });
+
+  it("completes axe on chromium when a nonce is present even if a service worker blocks the axe URL", async () => {
+    const session = await launchEngine("chromium");
+    try {
+      await registerAxeBlockingServiceWorker(session.page, "/violations");
+      expectViolationReport(await runAudit(session.page));
+    } finally {
+      await session.playwrightBrowser.close();
+    }
+  });
+
+  it("completes axe on webkit when a nonce is present even if a service worker blocks the axe URL", async () => {
+    const session = await launchEngine("webkit");
+    try {
+      await registerAxeBlockingServiceWorker(session.page, "/violations");
+      expectViolationReport(await runAudit(session.page));
     } finally {
       await session.playwrightBrowser.close();
     }

@@ -168,6 +168,18 @@ const readPageScriptNonce = async (page: Page) =>
     return "";
   });
 
+const injectAxeSourceWithNonce = async (page: Page, scriptNonce: string) => {
+  await page.evaluate(
+    ({ source, scriptNonce }) => {
+      const script = document.createElement("script");
+      script.nonce = scriptNonce;
+      script.text = source;
+      document.documentElement.appendChild(script);
+    },
+    { source: loadAxeScript(), scriptNonce },
+  );
+};
+
 const injectAxePageScript = async (page: Page) => {
   const pageUrl = page.url();
   if (!isHttpPageUrl(pageUrl)) {
@@ -175,9 +187,14 @@ const injectAxePageScript = async (page: Page) => {
     return;
   }
 
+  const axeScriptNonce = await readPageScriptNonce(page);
+  if (axeScriptNonce.length > 0) {
+    await injectAxeSourceWithNonce(page, axeScriptNonce);
+    return;
+  }
+
   const pageOrigin = new URL(pageUrl).origin;
   const axeScriptUrl = new URL(AXE_PAGE_SCRIPT_PATH, pageUrl).href;
-  const axeScriptNonce = await readPageScriptNonce(page);
   const matchesThisPageAxeScript = (scriptRequestUrl: URL) =>
     isAxePageScriptRequest(pageOrigin, scriptRequestUrl);
   const fulfillAxePageScript = (route: Route) =>
@@ -190,18 +207,15 @@ const injectAxePageScript = async (page: Page) => {
   await page.route(matchesThisPageAxeScript, fulfillAxePageScript);
   try {
     await page.evaluate(
-      ({ scriptUrl, scriptNonce }) =>
+      (scriptUrl) =>
         new Promise<void>((resolve, reject) => {
           const script = document.createElement("script");
-          if (scriptNonce.length > 0) {
-            script.nonce = scriptNonce;
-          }
           script.src = scriptUrl;
           script.onload = () => resolve();
           script.onerror = () => reject(new Error(`Failed to load script at ${scriptUrl}`));
           document.documentElement.appendChild(script);
         }),
-      { scriptUrl: axeScriptUrl, scriptNonce: axeScriptNonce },
+      axeScriptUrl,
     );
   } finally {
     await page.unroute(matchesThisPageAxeScript, fulfillAxePageScript);
