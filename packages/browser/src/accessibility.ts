@@ -3,6 +3,7 @@ import { createRequire } from "node:module";
 import type { Page, Route } from "playwright";
 import { Effect, Schema } from "effect";
 import { AGENT_OVERLAY_CONTAINER_ID, OVERLAY_CONTAINER_ID } from "./constants";
+import { AXE_PAGE_SCRIPT_PATH, isAxePageScriptRequest } from "./utils/axe-page-script-request";
 
 export class AccessibilityAuditError extends Schema.ErrorClass<AccessibilityAuditError>(
   "AccessibilityAuditError",
@@ -154,13 +155,18 @@ const loadAxeScript = () => {
   return cachedAxeScript;
 };
 
-const AXE_PAGE_SCRIPT_PATH = "/__expect_axe_core__/axe.min.js";
-
 const isHttpPageUrl = (pageUrl: string) =>
   pageUrl.startsWith("http://") || pageUrl.startsWith("https://");
 
-const matchesAxePageScript = (scriptRequestUrl: URL) =>
-  scriptRequestUrl.pathname === AXE_PAGE_SCRIPT_PATH;
+const readPageScriptNonce = async (page: Page) =>
+  page.evaluate(() => {
+    for (const script of document.querySelectorAll("script")) {
+      if (script.nonce.length > 0) {
+        return script.nonce;
+      }
+    }
+    return "";
+  });
 
 const injectAxePageScript = async (page: Page) => {
   const pageUrl = page.url();
@@ -169,7 +175,11 @@ const injectAxePageScript = async (page: Page) => {
     return;
   }
 
-  const scriptUrl = new URL(AXE_PAGE_SCRIPT_PATH, pageUrl).href;
+  const pageOrigin = new URL(pageUrl).origin;
+  const axeScriptUrl = new URL(AXE_PAGE_SCRIPT_PATH, pageUrl).href;
+  const axeScriptNonce = await readPageScriptNonce(page);
+  const matchesThisPageAxeScript = (scriptRequestUrl: URL) =>
+    isAxePageScriptRequest(pageOrigin, scriptRequestUrl);
   const fulfillAxePageScript = (route: Route) =>
     route.fulfill({
       status: 200,
@@ -177,11 +187,24 @@ const injectAxePageScript = async (page: Page) => {
       body: loadAxeScript(),
     });
 
-  await page.route(matchesAxePageScript, fulfillAxePageScript);
+  await page.route(matchesThisPageAxeScript, fulfillAxePageScript);
   try {
-    await page.addScriptTag({ url: scriptUrl });
+    await page.evaluate(
+      ({ scriptUrl, scriptNonce }) =>
+        new Promise<void>((resolve, reject) => {
+          const script = document.createElement("script");
+          if (scriptNonce.length > 0) {
+            script.nonce = scriptNonce;
+          }
+          script.src = scriptUrl;
+          script.onload = () => resolve();
+          script.onerror = () => reject(new Error(`Failed to load script at ${scriptUrl}`));
+          document.documentElement.appendChild(script);
+        }),
+      { scriptUrl: axeScriptUrl, scriptNonce: axeScriptNonce },
+    );
   } finally {
-    await page.unroute(matchesAxePageScript, fulfillAxePageScript);
+    await page.unroute(matchesThisPageAxeScript, fulfillAxePageScript);
   }
 };
 

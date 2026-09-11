@@ -9,6 +9,7 @@ import {
   type AccessibilityAuditResult,
 } from "../src/accessibility";
 import { AGENT_OVERLAY_CONTAINER_ID } from "../src/constants";
+import { startCspFixtureServer } from "./helpers/csp-fixtures";
 
 const runAudit = (page: Page) => Effect.runPromise(runAccessibilityAudit(page));
 
@@ -238,61 +239,6 @@ describe("runAccessibilityAudit", () => {
   });
 });
 
-const CSP_NONCE = "expect-csp-test-nonce";
-const CSP_HEADER = `default-src 'self'; script-src 'self' 'nonce-${CSP_NONCE}'; object-src 'none'; base-uri 'self'`;
-
-const CSP_VIOLATIONS_HTML = `<!DOCTYPE html>
-<html lang="en">
-  <head>
-    <meta charset="utf-8">
-    <title>CSP audit violations</title>
-    <script nonce="${CSP_NONCE}"></script>
-  </head>
-  <body>
-    <main>
-      <h1>CSP audit violations</h1>
-      <img src="missing-alt.png">
-    </main>
-  </body>
-</html>`;
-
-const CSP_CLEAN_HTML = `<!DOCTYPE html>
-<html lang="en">
-  <head>
-    <meta charset="utf-8">
-    <title>CSP audit clean</title>
-    <script nonce="${CSP_NONCE}"></script>
-  </head>
-  <body>
-    <main>
-      <h1>CSP audit clean</h1>
-      <p>Accessible paragraph.</p>
-      <img src="ok.png" alt="Placeholder photograph of a landscape">
-      <button type="button">Continue</button>
-    </main>
-  </body>
-</html>`;
-
-const startCspFixtureServer = async () => {
-  const server = http.createServer((request, response) => {
-    const requestPath = request.url ?? "/";
-    const html = requestPath.startsWith("/clean") ? CSP_CLEAN_HTML : CSP_VIOLATIONS_HTML;
-    response.writeHead(200, {
-      "Content-Type": "text/html; charset=utf-8",
-      "Content-Security-Policy": CSP_HEADER,
-    });
-    response.end(html);
-  });
-  await new Promise<void>((resolve) => {
-    server.listen(0, "127.0.0.1", () => resolve());
-  });
-  const address = server.address();
-  if (!address || typeof address === "string") {
-    throw new Error("csp fixture server has no port");
-  }
-  return { server, origin: `http://127.0.0.1:${address.port}` };
-};
-
 describe("runAccessibilityAudit webkit", () => {
   it("completes axe on webkit for the same product fixture", async () => {
     const session = await launchEngine("webkit");
@@ -338,44 +284,78 @@ describe("runAccessibilityAudit restrictive nonce CSP", () => {
     }
   };
 
-  it("completes axe and ibm on chromium and reports image-alt under script-src self+nonce", async () => {
-    const result = await auditCspPage("chromium", "/violations");
+  const expectViolationReport = (result: AccessibilityAuditResult) => {
     expect(result.engines.axe.status).toBe("completed");
     expect(result.engines.axe.cause).toBeUndefined();
     expect(result.engines.ibm.status).toBe("completed");
     expect(result.engines.ibm.cause).toBeUndefined();
     expect(result.violations.some((violation) => violation.ruleId === "image-alt")).toBe(true);
     expect(presentAccessibilityAudit(result).kind).toBe("report");
+  };
+
+  const expectEmptyPass = (result: AccessibilityAuditResult) => {
+    expect(result.engines.axe.status).toBe("completed");
+    expect(result.engines.ibm.status).toBe("completed");
+    expect(result.violations).toEqual([]);
+    expect(result.incomplete).toEqual([]);
+    expect(presentAccessibilityAudit(result).kind).toBe("empty-pass");
+  };
+
+  it("completes axe and ibm on chromium and reports image-alt under script-src self+nonce", async () => {
+    expectViolationReport(await auditCspPage("chromium", "/violations"));
   });
 
   it("completes axe and ibm on webkit and reports image-alt under script-src self+nonce", async () => {
-    const result = await auditCspPage("webkit", "/violations");
-    expect(result.engines.axe.status).toBe("completed");
-    expect(result.engines.axe.cause).toBeUndefined();
-    expect(result.engines.ibm.status).toBe("completed");
-    expect(result.engines.ibm.cause).toBeUndefined();
-    expect(result.violations.some((violation) => violation.ruleId === "image-alt")).toBe(true);
-    expect(presentAccessibilityAudit(result).kind).toBe("report");
+    expectViolationReport(await auditCspPage("webkit", "/violations"));
   });
 
-  const expectCompletedEngines = (result: AccessibilityAuditResult) => {
-    expect(result.engines.axe.status).toBe("completed");
-    expect(result.engines.ibm.status).toBe("completed");
-    const presented = presentAccessibilityAudit(result);
-    if (result.violations.length === 0 && result.incomplete.length === 0) {
-      expect(presented.kind).toBe("empty-pass");
-    } else {
-      expect(presented.kind).toBe("report");
+  it("completes axe and ibm on chromium under nonce-only script-src without self", async () => {
+    expectViolationReport(await auditCspPage("chromium", "/nonce-only/violations"));
+  });
+
+  it("completes axe and ibm on webkit under nonce-only script-src without self", async () => {
+    expectViolationReport(await auditCspPage("webkit", "/nonce-only/violations"));
+  });
+
+  it("completes axe and ibm on chromium under nonce strict-dynamic without self", async () => {
+    expectViolationReport(await auditCspPage("chromium", "/strict-dynamic/violations"));
+  });
+
+  it("completes axe and ibm on webkit under nonce strict-dynamic without self", async () => {
+    expectViolationReport(await auditCspPage("webkit", "/strict-dynamic/violations"));
+  });
+
+  it("reports empty-pass on chromium for a clean nonce CSP fixture with zero findings", async () => {
+    expectEmptyPass(await auditCspPage("chromium", "/clean"));
+  });
+
+  it("reports empty-pass on webkit for a clean nonce CSP fixture with zero findings", async () => {
+    expectEmptyPass(await auditCspPage("webkit", "/clean"));
+  });
+
+  it("fails closed on chromium when a service worker intercepts the axe script request", async () => {
+    const session = await launchEngine("chromium");
+    try {
+      await session.page.goto(`${cspOrigin}/self-only/violations`, {
+        waitUntil: "domcontentloaded",
+      });
+      await session.page.evaluate(async () => {
+        await navigator.serviceWorker.register("/sw.js");
+        await navigator.serviceWorker.ready;
+        if (!navigator.serviceWorker.controller) {
+          await new Promise<void>((resolve) => {
+            navigator.serviceWorker.addEventListener("controllerchange", () => resolve(), {
+              once: true,
+            });
+          });
+        }
+      });
+      await session.page.reload({ waitUntil: "domcontentloaded" });
+      const result = await runAudit(session.page);
+      expect(result.engines.axe.status).toBe("failed");
+      expect(presentAccessibilityAudit(result).kind).toBe("report");
+    } finally {
+      await session.playwrightBrowser.close();
     }
-  };
-
-  it("completes both engines on chromium for a clean nonce CSP fixture instead of treating failure as empty-pass", async () => {
-    const result = await auditCspPage("chromium", "/clean");
-    expectCompletedEngines(result);
-  });
-
-  it("completes both engines on webkit for a clean nonce CSP fixture instead of treating failure as empty-pass", async () => {
-    const result = await auditCspPage("webkit", "/clean");
-    expectCompletedEngines(result);
   });
 });

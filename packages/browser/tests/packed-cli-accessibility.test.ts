@@ -9,13 +9,11 @@ import { afterAll, beforeAll, describe, expect, it } from "vite-plus/test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { AGENT_OVERLAY_CONTAINER_ID } from "../src/constants";
+import { CSP_NONCE, CSP_SELF_NONCE } from "./helpers/csp-fixtures";
 
 const PACKED_TEST_TIMEOUT_MS = 180_000;
 const cliRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../../apps/cli");
 const mcpDist = path.join(cliRoot, "dist", "browser-mcp.js");
-
-const PACKED_CSP_NONCE = "expect-csp-test-nonce";
-const PACKED_CSP_HEADER = `default-src 'self'; script-src 'self' 'nonce-${PACKED_CSP_NONCE}'; object-src 'none'; base-uri 'self'`;
 
 const FIXTURE_HTML = `<!DOCTYPE html>
 <html lang="en">
@@ -29,7 +27,7 @@ const FIXTURE_HTML = `<!DOCTYPE html>
       <img src="missing-alt.png" data-doc="${AGENT_OVERLAY_CONTAINER_ID}">
       <svg id="product-unlabelled-svg" width="24" height="24"></svg>
     </main>
-    <script nonce="${PACKED_CSP_NONCE}">
+    <script nonce="${CSP_NONCE}">
       const host = document.createElement("div");
       host.id = "${AGENT_OVERLAY_CONTAINER_ID}";
       host.setAttribute("data-expect-overlay", "true");
@@ -85,7 +83,7 @@ describe("packed expect-cli accessibility_audit", () => {
     server = http.createServer((_request, response) => {
       response.writeHead(200, {
         "Content-Type": "text/html; charset=utf-8",
-        "Content-Security-Policy": PACKED_CSP_HEADER,
+        "Content-Security-Policy": CSP_SELF_NONCE,
       });
       response.end(FIXTURE_HTML);
     });
