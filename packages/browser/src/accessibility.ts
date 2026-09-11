@@ -1,6 +1,6 @@
 import * as fs from "node:fs";
 import { createRequire } from "node:module";
-import type { Page } from "playwright";
+import type { Page, Route } from "playwright";
 import { Effect, Schema } from "effect";
 import { AGENT_OVERLAY_CONTAINER_ID, OVERLAY_CONTAINER_ID } from "./constants";
 
@@ -154,6 +154,37 @@ const loadAxeScript = () => {
   return cachedAxeScript;
 };
 
+const AXE_PAGE_SCRIPT_PATH = "/__expect_axe_core__/axe.min.js";
+
+const isHttpPageUrl = (pageUrl: string) =>
+  pageUrl.startsWith("http://") || pageUrl.startsWith("https://");
+
+const matchesAxePageScript = (scriptRequestUrl: URL) =>
+  scriptRequestUrl.pathname === AXE_PAGE_SCRIPT_PATH;
+
+const injectAxePageScript = async (page: Page) => {
+  const pageUrl = page.url();
+  if (!isHttpPageUrl(pageUrl)) {
+    await page.addScriptTag({ content: loadAxeScript() });
+    return;
+  }
+
+  const scriptUrl = new URL(AXE_PAGE_SCRIPT_PATH, pageUrl).href;
+  const fulfillAxePageScript = (route: Route) =>
+    route.fulfill({
+      status: 200,
+      contentType: "application/javascript; charset=utf-8",
+      body: loadAxeScript(),
+    });
+
+  await page.route(matchesAxePageScript, fulfillAxePageScript);
+  try {
+    await page.addScriptTag({ url: scriptUrl });
+  } finally {
+    await page.unroute(matchesAxePageScript, fulfillAxePageScript);
+  }
+};
+
 const toImpact = (value: string | undefined): AccessibilityViolation["impact"] => {
   if (value === "critical" || value === "serious" || value === "moderate" || value === "minor") {
     return value;
@@ -256,7 +287,7 @@ export const runAccessibilityAudit = Effect.fn("Accessibility.runAccessibilityAu
     [
       Effect.tryPromise({
         try: async (): Promise<AxeRunResult> => {
-          await page.addScriptTag({ content: loadAxeScript() });
+          await injectAxePageScript(page);
           return page.evaluate(axeRunExpression);
         },
         catch: (cause) => new AccessibilityAuditError({ engine: "axe-core", cause: String(cause) }),

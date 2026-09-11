@@ -14,16 +14,22 @@ const PACKED_TEST_TIMEOUT_MS = 180_000;
 const cliRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../../apps/cli");
 const mcpDist = path.join(cliRoot, "dist", "browser-mcp.js");
 
+const PACKED_CSP_NONCE = "expect-csp-test-nonce";
+const PACKED_CSP_HEADER = `default-src 'self'; script-src 'self' 'nonce-${PACKED_CSP_NONCE}'; object-src 'none'; base-uri 'self'`;
+
 const FIXTURE_HTML = `<!DOCTYPE html>
 <html lang="en">
-  <head><title>Packed audit fixture</title></head>
+  <head>
+    <meta charset="utf-8">
+    <title>Packed audit fixture</title>
+  </head>
   <body>
     <main>
       <h1>Packed audit fixture</h1>
       <img src="missing-alt.png" data-doc="${AGENT_OVERLAY_CONTAINER_ID}">
       <svg id="product-unlabelled-svg" width="24" height="24"></svg>
     </main>
-    <script>
+    <script nonce="${PACKED_CSP_NONCE}">
       const host = document.createElement("div");
       host.id = "${AGENT_OVERLAY_CONTAINER_ID}";
       host.setAttribute("data-expect-overlay", "true");
@@ -77,7 +83,10 @@ describe("packed expect-cli accessibility_audit", () => {
 
   beforeAll(async () => {
     server = http.createServer((_request, response) => {
-      response.writeHead(200, { "Content-Type": "text/html" });
+      response.writeHead(200, {
+        "Content-Type": "text/html; charset=utf-8",
+        "Content-Security-Policy": PACKED_CSP_HEADER,
+      });
       response.end(FIXTURE_HTML);
     });
     await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
@@ -124,6 +133,7 @@ describe("packed expect-cli accessibility_audit", () => {
       expect(body).not.toBe("No accessibility violations found.");
       const parsed = JSON.parse(body);
       expect(parsed.engines.axe.status).toBe("completed");
+      expect(parsed.engines.ibm.status).toBe("completed");
       expect(
         parsed.violations.some((violation: { ruleId: string }) => violation.ruleId === "image-alt"),
       ).toBe(true);
